@@ -1,10 +1,3 @@
-import React from "react"
-import { Text, View } from "react-native"
+import { App } from "./src/App"
 
-export default () => {
-  return (
-    <View>
-      <Text>Hello World</Text>
-    </View>
-  )
-}
+export default App
