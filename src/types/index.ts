@@ -6,7 +6,7 @@ export type Room = {
 
 export type Booking = {
   id: string
-  start: Date
-  end: Date
+  start: string
+  end: string
   roomId: string
 }

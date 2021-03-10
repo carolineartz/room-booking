@@ -1,3 +1,4 @@
+/* eslint-disable unused-imports/no-unused-vars */
 /* eslint-disable unused-imports/no-unused-imports */
 import React from "react"
 import { View, Dimensions } from "react-native"
@@ -6,10 +7,13 @@ import { useHeaderHeight } from "@react-navigation/stack"
 import chroma from "chroma-js"
 import Color from "color"
 import constant from "lodash.constant"
+import findKey from "lodash.findkey"
 import groupBy from "lodash.groupby"
 import times from "lodash.times"
+import uniq from "lodash.uniq"
 import moment from "moment"
-import { Agenda } from "react-native-calendars"
+import { Agenda, DateObject, ExpandableCalendar, CalendarProvider } from "react-native-calendars"
+import EventCalendar from "react-native-events-calendar"
 import { ScrollView, TouchableOpacity } from "react-native-gesture-handler"
 import { useSelector } from "react-redux"
 import styled from "styled-components/native"
@@ -27,6 +31,7 @@ const COLOR_OPTIONS = ["rgba(254, 48, 147, 1.0)", DEFAULT_COLOR]
 const DATE_SCROLL_HEIGHT = 110
 const HOUR_HEIGHT = 85
 const HOUR_TEXT_WIDTH = 45
+
 const Container = styled.View`
   flex: 1;
   background-color: ${({ theme }): string => theme.background};
@@ -34,27 +39,13 @@ const Container = styled.View`
   justify-content: center;
 `
 
-type BookingItemData = {
-  id: string
-  weekNumberString: string
-  dateString: string
-  firstOfMonthString: string
-  roomId: string
-  start: Date
-  end: Date
-}
-
 export const Bookings = () => {
   const renderedMoment = React.useMemo(() => moment(new Date()), [])
   const { height, width } = Dimensions.get("screen")
-  const dispatch = useAppDispatch()
   const bookings = useSelector(bookingsSelector.selectAll)
+  const dispatch = useAppDispatch()
   const rooms = useSelector(roomsSelector.selectAll)
-  const headerHeight = useHeaderHeight()
-  const aboveAgendaHeight = height - (headerHeight + DATE_SCROLL_HEIGHT)
-  const [firstOfMonthShownString, setFirstOfMonthShownString] = React.useState(
-    renderedMoment.format("YYYY-MM-01")
-  )
+
   const roomColorMap = React.useMemo(() => {
     return rooms.reduce((colorMap, room, i) => {
       colorMap[room.id] = COLOR_OPTIONS[i] || DEFAULT_COLOR
@@ -65,127 +56,45 @@ export const Bookings = () => {
   const allLoadedBookingData = React.useMemo(() => {
     return bookings.map((b) => {
       const startMoment = moment(b.start)
-
       return {
         id: b.id,
-        weekNumberString: startMoment.format("w"),
+        color: chroma(roomColorMap[b.roomId]).hex(),
         dateString: startMoment.format("YYYY-MM-DD"),
-        firstOfMonthString: startMoment.format("YYYY-MM-01"),
         roomId: b.roomId,
-        start: new Date(b.start),
-        end: new Date(b.end),
+        start: moment(b.start).format("YYYY-MM-DD HH:MM:SS"),
+        end: moment(b.end).format("YYYY-MM-DD HH:MM:SS"),
+        summary: b.id,
       }
     })
-  }, [bookings])
+  }, [bookings, roomColorMap])
 
-  const byDay = React.useMemo(() => {
-    return groupBy(allLoadedBookingData, "dateString")
-  }, [allLoadedBookingData])
+  const markedDates = React.useMemo(() => {
+    const dots = rooms.reduce((dotMap, room, i) => {
+      dotMap[room.id] = {
+        key: room.id,
+        color: COLOR_OPTIONS[i] || DEFAULT_COLOR,
+        selectedDotColor: COLOR_OPTIONS[i] || DEFAULT_COLOR,
+      }
+      return dotMap
+    }, {} as Record<string, { key: string; color: string; selectedDotColor: string }>)
 
-  const monthBookingDataByDay = React.useMemo(() => {
-    return groupBy(
-      allLoadedBookingData.filter((d) => d.firstOfMonthString === firstOfMonthShownString),
-      "dateString"
+    const groupedByDate = groupBy(allLoadedBookingData, "dateString")
+    return Object.fromEntries(
+      Object.entries(groupedByDate).map(([k, v]) => {
+        return [k, { dots: uniq(v.map((v) => v.roomId)).map((rId) => dots[rId]) }]
+      })
     )
-  }, [allLoadedBookingData, firstOfMonthShownString])
-
-  React.useEffect(() => {}, [allLoadedBookingData])
+  }, [rooms, allLoadedBookingData])
 
   React.useEffect(() => {
     dispatch(loadBookings())
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
   return (
-    <Container>
-      <Agenda
-        // The list of items that have to be displayed in agenda. If you want to render item as empty date
-        // the value of date key has to be an empty array []. If there exists no value for date key it is
-        // considered that the date in question is not yet loaded
-        items={monthBookingDataByDay}
-        // Callback that gets called when items for a certain month should be loaded (month became visible)
-        loadItemsForMonth={(month) => {
-          // month.dateString
-          // console.log("trigger items loading")
-
-          setFirstOfMonthShownString(moment(month.dateString, "YYYY-MM-DD").format("YYYY-MM-01"))
-        }}
-        renderItem={(_item, _firstItemInDay) => {
-          return null
-        }}
-        renderDay={(day, item) => {
-          if (day) {
-            console.log("***************")
-            console.log("day", day)
-            console.log("first item", item)
-            console.log("***************")
-            const firstItemDay = moment(item.start)
-            const agendaForDay = monthBookingDataByDay[day.dateString]
-            const agendaByRoom = groupBy(agendaForDay, "roomId")
-            return (
-              <View style={{ width, backgroundColor: "white" }}>
-                <View
-                  style={{
-                    flex: 1,
-                    paddingHorizontal: 5,
-                    height: aboveAgendaHeight,
-                    width,
-                    position: "relative",
-                  }}
-                >
-                  {/* heading */}
-                  <View style={{ marginBottom: 10 }}>
-                    <Text weight="extra-bold" size={30}>
-                      {firstItemDay.format("MMMM D,")}{" "}
-                      <Text size={30} weight="regular">
-                        {firstItemDay.format("YYYY")}
-                      </Text>
-                    </Text>
-                    <Text weight="regular" size={20}>
-                      {firstItemDay.format("dddd")}
-                    </Text>
-                  </View>
-
-                  <View style={{ flex: 1 }}>
-                    {rooms.map((r) => {
-                      return (
-                        <RoomAgenda
-                          key={`${r.id}-${day.dateString}`}
-                          data={agendaByRoom[r.id] || []}
-                          color={roomColorMap[r.id]}
-                        />
-                      )
-                    })}
-                  </View>
-                </View>
-              </View>
-            )
-          } else {
-            return null
-          }
-        }}
-        renderEmptyDate={() => {
-          return (
-            <View>
-              <Text>This is empty date!</Text>
-            </View>
-          )
-        }}
-        renderEmptyData={() => {
-          return <Text>No bookings for today!</Text>
-        }}
-        rowHasChanged={(r1, r2) => {
-          return r1.weekNumberString !== r2.weekNumberString
-        }}
-        refreshing={false}
-        // If provided, a standard RefreshControl will be added for "Pull to Refresh" functionality. Make sure to also set the refreshing prop correctly.
-        onRefresh={() => console.log("refreshing...")}
-        theme={{}}
-        style={{
-          width: "100%",
-          minWidth: 350,
-        }}
-      />
-    </Container>
+    <CalendarProvider>
+      <ExpandableCalendar firstDay={1} markingType="multi-dot" markedDates={markedDates} />
+    </CalendarProvider>
   )
 }
 
@@ -200,6 +109,18 @@ const Hour = ({ label }: { label: string }) => {
       <View style={{ flex: 1, borderBottomColor: "#BEBEBE", borderBottomWidth: 1 }} />
     </View>
   )
+}
+
+type BookingItemData = {
+  id: string
+  isPlaceholder: boolean
+  weekNumberString: string
+  dateString: string
+  firstOfMonthString: string
+  monthString: string
+  roomId: string
+  start: Date
+  end: Date
 }
 
 type RoomAgendaProps = {
