@@ -1,51 +1,40 @@
-/* eslint-disable unused-imports/no-unused-vars */
-/* eslint-disable unused-imports/no-unused-imports */
 import React from "react"
-import { View, Dimensions } from "react-native"
+import { View, Dimensions, SafeAreaView } from "react-native"
 
 import { useHeaderHeight } from "@react-navigation/stack"
 import chroma from "chroma-js"
-import Color from "color"
 import constant from "lodash.constant"
-import findKey from "lodash.findkey"
 import groupBy from "lodash.groupby"
 import times from "lodash.times"
 import uniq from "lodash.uniq"
 import moment from "moment"
-import { Agenda, DateObject, ExpandableCalendar, CalendarProvider } from "react-native-calendars"
-import EventCalendar from "react-native-events-calendar"
-import { ScrollView, TouchableOpacity } from "react-native-gesture-handler"
+import { ExpandableCalendar, CalendarProvider } from "react-native-calendars"
+import { FlatList, ScrollView } from "react-native-gesture-handler"
 import { useSelector } from "react-redux"
-import styled from "styled-components/native"
 
 import { Text } from "@/components/shared/Text"
 
 import { useAppDispatch } from "@/config/store"
 import { loadBookings, bookingsSelector } from "@/slices/bookings"
 import { roomsSelector } from "@/slices/rooms"
-import { Booking } from "@/types"
 
 const DEFAULT_COLOR = "rgba(0, 253, 255, 1.0)"
 const COLOR_OPTIONS = ["rgba(254, 48, 147, 1.0)", DEFAULT_COLOR]
 
-const DATE_SCROLL_HEIGHT = 110
+const DATE_SCROLL_HEIGHT = 140
 const HOUR_HEIGHT = 85
 const HOUR_TEXT_WIDTH = 45
 
-const Container = styled.View`
-  flex: 1;
-  background-color: ${({ theme }): string => theme.background};
-  align-items: center;
-  justify-content: center;
-`
-
 export const Bookings = () => {
-  const renderedMoment = React.useMemo(() => moment(new Date()), [])
+  const headerHeight = useHeaderHeight()
   const { height, width } = Dimensions.get("screen")
+  const aboveAgendaHeight = height - (headerHeight + DATE_SCROLL_HEIGHT)
+  const renderedMoment = React.useMemo(() => moment(new Date()), [])
   const bookings = useSelector(bookingsSelector.selectAll)
   const dispatch = useAppDispatch()
   const rooms = useSelector(roomsSelector.selectAll)
-
+  // const [viewingDay, setViewingDay] = React.useState(renderedMoment.format("YYYY-MM-DD"))
+  const [viewingMonth, setViewingMonth] = React.useState(renderedMoment.format("YYYY-MM"))
   const roomColorMap = React.useMemo(() => {
     return rooms.reduce((colorMap, room, i) => {
       colorMap[room.id] = COLOR_OPTIONS[i] || DEFAULT_COLOR
@@ -60,13 +49,21 @@ export const Bookings = () => {
         id: b.id,
         color: chroma(roomColorMap[b.roomId]).hex(),
         dateString: startMoment.format("YYYY-MM-DD"),
+        monthString: startMoment.format("YYYY-MM"),
         roomId: b.roomId,
-        start: moment(b.start).format("YYYY-MM-DD HH:MM:SS"),
-        end: moment(b.end).format("YYYY-MM-DD HH:MM:SS"),
+        start: new Date(b.start),
+        end: new Date(b.end),
         summary: b.id,
       }
     })
   }, [bookings, roomColorMap])
+
+  const monthsDataToDisplay = React.useMemo(() => {
+    const prevMonth = moment(viewingMonth).subtract("1", "M").format("YYYY-MM")
+    const nextMonth = moment(viewingMonth).add("1", "M").format("YYYY-MM")
+
+    return allLoadedBookingData.filter((d) => [prevMonth, viewingMonth, nextMonth].includes(d.monthString))
+  }, [allLoadedBookingData, viewingMonth])
 
   const markedDates = React.useMemo(() => {
     const dots = rooms.reduce((dotMap, room, i) => {
@@ -78,23 +75,114 @@ export const Bookings = () => {
       return dotMap
     }, {} as Record<string, { key: string; color: string; selectedDotColor: string }>)
 
-    const groupedByDate = groupBy(allLoadedBookingData, "dateString")
+    const groupedByDate = groupBy(monthsDataToDisplay, "dateString")
+
     return Object.fromEntries(
       Object.entries(groupedByDate).map(([k, v]) => {
         return [k, { dots: uniq(v.map((v) => v.roomId)).map((rId) => dots[rId]) }]
       })
     )
-  }, [rooms, allLoadedBookingData])
+  }, [rooms, monthsDataToDisplay])
 
   React.useEffect(() => {
     dispatch(loadBookings())
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  const fullMonthsDataByDay = React.useMemo(() => {
+    const groupedByDate = groupBy(monthsDataToDisplay, "dateString")
+    const monthStrings = Object.keys(groupBy(monthsDataToDisplay, "monthString"))
+
+    return monthStrings.flatMap((ms) => {
+      const monthMoment = moment(ms)
+      return Array.from({ length: monthMoment.daysInMonth() }, (v, k) => {
+        const dateString = ms + "-" + `${k + 1}`.padStart(2, "0")
+        return {
+          dateString,
+          agendaItems: groupedByDate[dateString] || [],
+        }
+      })
+    })
+  }, [monthsDataToDisplay])
+
   return (
-    <CalendarProvider>
-      <ExpandableCalendar firstDay={1} markingType="multi-dot" markedDates={markedDates} />
-    </CalendarProvider>
+    <View style={{ flex: 1, backgroundColor: "white" }}>
+      <CalendarProvider date={renderedMoment.format("YYYY-MM-DD")}>
+        <ExpandableCalendar
+          firstDay={1}
+          style={{
+            shadowOpacity: 0,
+          }}
+          markingType="multi-dot"
+          markedDates={markedDates}
+          // onDayPress={(day) => setViewingDay(day.dateString)}
+          // onDayChange={(day) => setViewingDay(day.dateString)}
+          onMonthChange={(month) => setViewingMonth(moment(month.dateString).format("YYYY-MM"))}
+        />
+        <SafeAreaView style={{ flex: 1 }}>
+          <FlatList
+            horizontal
+            data={fullMonthsDataByDay}
+            contentInsetAdjustmentBehavior="never"
+            snapToAlignment="end"
+            pagingEnabled
+            decelerationRate="fast"
+            automaticallyAdjustContentInsets={false}
+            showsHorizontalScrollIndicator={false}
+            showsVerticalScrollIndicator={false}
+            scrollEventThrottle={1}
+            snapToInterval={width}
+            keyExtractor={(item, index) => `${index}-${item}`}
+            renderItem={({ item: { dateString, agendaItems } }) => {
+              const dayMoment = moment(dateString)
+              const agendaByRoom = groupBy(agendaItems, "roomId")
+              return (
+                <View style={{ width, backgroundColor: "white" }}>
+                  <View
+                    style={{
+                      flex: 1,
+                      paddingHorizontal: 5,
+                      height: aboveAgendaHeight,
+                      width,
+                      position: "relative",
+                    }}
+                  >
+                    <View style={{ marginBottom: 10 }}>
+                      <Text weight="extra-bold" size={30}>
+                        {dayMoment.format("MMMM D,")}{" "}
+                        <Text size={30} weight="regular">
+                          {dayMoment.format("YYYY")}
+                        </Text>
+                      </Text>
+                      <Text weight="regular" size={20}>
+                        {dayMoment.format("dddd")}
+                      </Text>
+                    </View>
+
+                    <View style={{ flex: 1 }}>
+                      {rooms.map((r, i) => {
+                        return (
+                          <>
+                            <RoomAgenda
+                              key={`${r.id}-${dateString}`}
+                              data={agendaByRoom[r.id] || []}
+                              color={roomColorMap[r.id]}
+                            />
+                            {i < rooms.length && (
+                              <View key={`${r.id}-spacer-${i}`} style={{ marginTop: 20 }} />
+                            )}
+                          </>
+                        )
+                      })}
+                    </View>
+                  </View>
+                </View>
+              )
+            }}
+          />
+        </SafeAreaView>
+      </CalendarProvider>
+    </View>
   )
 }
 
@@ -111,20 +199,8 @@ const Hour = ({ label }: { label: string }) => {
   )
 }
 
-type BookingItemData = {
-  id: string
-  isPlaceholder: boolean
-  weekNumberString: string
-  dateString: string
-  firstOfMonthString: string
-  monthString: string
-  roomId: string
-  start: Date
-  end: Date
-}
-
 type RoomAgendaProps = {
-  data: BookingItemData[]
+  data: { start: Date; end: Date; roomId: string; id: string }[]
   color: string // color string
 }
 
